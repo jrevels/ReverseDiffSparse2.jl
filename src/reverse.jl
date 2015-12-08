@@ -143,7 +143,7 @@ function hessmat_eval!{N,T}(R::Matrix{T},
         for r in 1:length(local_to_global_idx)
             # set up directional derivatives
             idx = local_to_global_idx[r]
-            forward_input_vector[idx] = G(x_values[idx], (R[r,k:(k+N-1)]...))
+            forward_input_vector[idx] = G(x_values[idx], extract_partials(G, R, r, k))
             reverse_output_vector[idx] = zero(G)
         end
 
@@ -164,6 +164,11 @@ function hessmat_eval!{N,T}(R::Matrix{T},
 
     # do one more evaluation with whatever's chunk-size is left over
     # leftover = size(R, 2) - last_chunk
+end
+
+# returns (R[r, k], R[r, k+1], ... R[r, k+N-1])
+@generated function extract_partials{N,T}(::Type{GradNumTup{N,T}}, R, r, k)
+    return Expr(:tuple, [:(R[r, k+$i]) for i in 0:(N-1)]...)
 end
 
 export hessmat_eval!

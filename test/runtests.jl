@@ -82,15 +82,16 @@ test_linearity(:(x[1]/3+x[2]), LINEAR)
 test_linearity(:(3/(x[1]*x[2])), NONLINEAR, Set([(2,2),(1,1),(2,1)]))
 test_linearity(:(1/(x[1]+3)), NONLINEAR)
 
-using DualNumbers
-
 ex = :(x[1]^2/2 + 2x[1]*x[2])
 nd,const_values = expr_to_nodedata(ex)
 adj = adjmat(nd)
-forward_storage = Array(Dual{Float64},length(nd))
-reverse_storage = Array(Dual{Float64},length(nd))
-reverse_output_vector = Array(Dual{Float64},2)
-forward_input_vector = Array(Dual{Float64},2)
+
+G = ForwardDiff.GradNumTup{2,Float64}
+
+forward_storage = Array(G,length(nd))
+reverse_storage = Array(G,length(nd))
+reverse_output_vector = Array(G,2)
+forward_input_vector = Array(G,2)
 x_values = [10.0,2.0]
 
 local_to_global_idx = [1,2]
@@ -102,7 +103,6 @@ local_to_global_idx = [2,1]
 R = [0.0 1.0; 1.0 0.0]
 hessmat_eval!(R, reverse_storage, forward_storage, nd, adj, const_values, x_values, reverse_output_vector, forward_input_vector, local_to_global_idx)
 @test R == [2.0 0.0; 1.0 2.0]
-
 
 include("test_coloring.jl")
 include("test_jump.jl")

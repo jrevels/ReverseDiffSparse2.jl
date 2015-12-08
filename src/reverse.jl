@@ -124,38 +124,46 @@ switchexpr = Expr(:macrocall, Expr(:.,:Lazy,quot(symbol("@switch"))), :operator_
     $switchexpr
 end
 
+function hessmat_eval!{N,T}(R::Matrix{T},
+                           rev_storage::Vector{GradNumTup{N,T}},
+                           forward_storage::Vector{GradNumTup{N,T}},
+                           nd::Vector{NodeData},
+                           adj,
+                           const_values,
+                           x_values::Vector{T},
+                           reverse_output_vector::Vector{GradNumTup{N,T}},
+                           forward_input_vector::Vector{GradNumTup{N,T}},
+                           local_to_global_idx::Vector{Int})
+    nevals = div(size(R, 2), N)
+    last_chunk = N*nevals
+    G = GradNumTup{N,T}
 
-# Hessian-matrix products
-# forward_input_vector should already be initialized with the input x values
-function hessmat_eval!{T}(R::Matrix{T},rev_storage::Vector{Dual{T}},forward_storage::Vector{Dual{T}},nd::Vector{NodeData},adj,const_values,x_values::Vector{T},reverse_output_vector::Vector{Dual{T}}, forward_input_vector::Vector{Dual{T}},local_to_global_idx::Vector{Int})
-
-    num_products = size(R,2) # number of hessian-vector products
-    @assert size(R,1) == length(local_to_global_idx)
-    numVar = length(x_values)
-
-    for k in 1:num_products
-
+    # perform all evaluations requiring the full chunk-size
+    for k in 1:N:last_chunk
         for r in 1:length(local_to_global_idx)
             # set up directional derivatives
-            @inbounds idx = local_to_global_idx[r]
-            @inbounds forward_input_vector[idx] = Dual(x_values[idx],R[r,k])
-            @inbounds reverse_output_vector[idx] = zero(Dual{T})
+            idx = local_to_global_idx[r]
+            forward_input_vector[idx] = G(x_values[idx], (R[r,k:(k+N-1)]...))
+            reverse_output_vector[idx] = zero(G)
         end
 
         # do a forward pass
-        forward_eval(forward_storage,nd,adj,const_values,forward_input_vector)
+        forward_eval(forward_storage, nd, adj, const_values, forward_input_vector)
+
         # do a reverse pass
-        reverse_eval(reverse_output_vector,rev_storage,forward_storage,nd,adj,const_values)
+        reverse_eval(reverse_output_vector, rev_storage, forward_storage, nd, adj, const_values)
 
         # collect directional derivatives
-        for r in 1:length(local_to_global_idx)
-            idx = local_to_global_idx[r]
-            R[r,k] = epsilon(reverse_output_vector[idx])
+        for c in k:(k+N-1)
+            for r in 1:length(local_to_global_idx)
+                idx = local_to_global_idx[r]
+                R[r,c] = grad(reverse_output_vector[idx], c)
+            end
         end
-
     end
 
-
+    # do one more evaluation with whatever's chunk-size is left over
+    # leftover = size(R, 2) - last_chunk
 end
 
 export hessmat_eval!

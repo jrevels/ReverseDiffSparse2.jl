@@ -2,6 +2,7 @@ module ReverseDiffSparse2
 
 using Base.Meta
 import DualNumbers: Dual, epsilon
+import ForwardDiff: GradNumTup, grad
 import Calculus
 import Lazy
 

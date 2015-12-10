@@ -4,9 +4,9 @@
 
 # assumes forward_storage is already updated
 # dense gradient output, assumes initialized to zero
-function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storage::Vector{T},nd::Vector{NodeData},adj,const_values)
+function reverse_eval{T}(output::Vector{T},reverse_storage::Vector{T},forward_storage::Vector{T},nd::Vector{NodeData},adj,const_values)
 
-    @assert length(rev_storage) >= length(nd)
+    @assert length(reverse_storage) >= length(nd)
     @assert length(forward_storage) >= length(nd)
 
     # nd is already in order such that parents always appear before children
@@ -21,7 +21,7 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
 
     # reverse_storage[k] is the partial derivative of the output with respect to
     # the value of node k
-    rev_storage[1] = 1
+    reverse_storage[1] = 1
 
     for k in 2:length(nd)
         @inbounds nod = nd[k]
@@ -29,17 +29,17 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
         # compute the value of reverse_storage[k]
         parentidx = nod.parent
         @inbounds par = nd[parentidx]
-        @inbounds parentval = rev_storage[parentidx]
+        @inbounds parentval = reverse_storage[parentidx]
         op = par.index
         if par.nodetype == CALL
             if op == 1 # :+
-                @inbounds rev_storage[k] = parentval
+                @inbounds reverse_storage[k] = parentval
             elseif op == 2 # :-
                 @inbounds siblings_idx = nzrange(adj,parentidx)
                 if nod.whichchild == 1
-                    @inbounds rev_storage[k] = parentval
+                    @inbounds reverse_storage[k] = parentval
                 else
-                    @inbounds rev_storage[k] = -parentval
+                    @inbounds reverse_storage[k] = -parentval
                 end
             elseif op == 3 # :*
                 # dummy version for now
@@ -48,7 +48,7 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
                 if n_siblings == 2
                     otheridx = ifelse(nod.whichchild == 1, last(siblings_idx),first(siblings_idx))
                     @inbounds prod_others = forward_storage[children_arr[otheridx]]
-                    @inbounds rev_storage[k] = parentval*prod_others
+                    @inbounds reverse_storage[k] = parentval*prod_others
                 else
                     @inbounds parent_val = forward_storage[parentidx]
                     if parent_val == 0.0
@@ -60,9 +60,9 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
                             @inbounds prod_others *= forward_storage[children_arr[sib_idx]]
                             prod_others == 0.0 && break
                         end
-                        @inbounds rev_storage[k] = parentval*prod_others
+                        @inbounds reverse_storage[k] = parentval*prod_others
                     else
-                        @inbounds rev_storage[k] = parentval*(parent_val/forward_storage[k])
+                        @inbounds reverse_storage[k] = parentval*(parent_val/forward_storage[k])
                     end
                 end
             elseif op == 4 # :^
@@ -71,25 +71,25 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
                     @inbounds exponentidx = children_arr[last(siblings_idx)]
                     @inbounds exponent = forward_storage[exponentidx]
                     if exponent == 2
-                        @inbounds rev_storage[k] = parentval*2*forward_storage[k]
+                        @inbounds reverse_storage[k] = parentval*2*forward_storage[k]
                     else
-                        rev_storage[k] = parentval*exponent*forward_storage[k]^(exponent-1)
+                        reverse_storage[k] = parentval*exponent*forward_storage[k]^(exponent-1)
                     end
                 else
                     baseidx = children_arr[first(siblings_idx)]
                     base = forward_storage[baseidx]
-                    rev_storage[k] = parentval*forward_storage[parentidx]*log(base)
+                    reverse_storage[k] = parentval*forward_storage[parentidx]*log(base)
                 end
             elseif op == 5 # :/
                 @inbounds siblings_idx = nzrange(adj,parentidx)
                 if nod.whichchild == 1 # numerator
                     @inbounds denomidx = children_arr[last(siblings_idx)]
                     @inbounds denom = forward_storage[denomidx]
-                    @inbounds rev_storage[k] = parentval/denom
+                    @inbounds reverse_storage[k] = parentval/denom
                 else # denominator
                     @inbounds numeratoridx = children_arr[first(siblings_idx)]
                     @inbounds numerator = forward_storage[numeratoridx]
-                    @inbounds rev_storage[k] = -parentval*numerator*forward_storage[k]^(-2)
+                    @inbounds reverse_storage[k] = -parentval*numerator*forward_storage[k]^(-2)
                 end
             else
                 error()
@@ -97,11 +97,11 @@ function reverse_eval{T}(output::Vector{T},rev_storage::Vector{T},forward_storag
         else
             @assert par.nodetype == CALLUNIVAR
             @inbounds this_value = forward_storage[k]
-            @inbounds rev_storage[k] = parentval*univariate_deriv(op,this_value)
+            @inbounds reverse_storage[k] = parentval*univariate_deriv(op,this_value)
         end
 
         if nod.nodetype == VARIABLE
-            @inbounds output[nod.index] += rev_storage[k]
+            @inbounds output[nod.index] += reverse_storage[k]
         end
     end
     #@show storage
@@ -125,7 +125,7 @@ switchexpr = Expr(:macrocall, Expr(:.,:Lazy,quot(symbol("@switch"))), :operator_
 end
 
 function hessmat_eval!{N,T}(R::Matrix{T},
-                           rev_storage::Vector{GradNumTup{N,T}},
+                           reverse_storage::Vector{GradNumTup{N,T}},
                            forward_storage::Vector{GradNumTup{N,T}},
                            nd::Vector{NodeData},
                            adj,
@@ -134,14 +134,16 @@ function hessmat_eval!{N,T}(R::Matrix{T},
                            reverse_output_vector::Vector{GradNumTup{N,T}},
                            forward_input_vector::Vector{GradNumTup{N,T}},
                            local_to_global_idx::Vector{Int})
-    nevals = div(size(R, 2), N)
+
+    ncols = size(R, 2)
+    nevals = div(ncols, N)
     last_chunk = N*nevals
     G = GradNumTup{N,T}
 
     # perform all evaluations requiring the full chunk-size
     for k in 1:N:last_chunk
+        # set up directional derivatives
         for r in 1:length(local_to_global_idx)
-            # set up directional derivatives
             idx = local_to_global_idx[r]
             forward_input_vector[idx] = G(x_values[idx], extract_partials(G, R, r, k))
             reverse_output_vector[idx] = zero(G)
@@ -151,7 +153,7 @@ function hessmat_eval!{N,T}(R::Matrix{T},
         forward_eval(forward_storage, nd, adj, const_values, forward_input_vector)
 
         # do a reverse pass
-        reverse_eval(reverse_output_vector, rev_storage, forward_storage, nd, adj, const_values)
+        reverse_eval(reverse_output_vector, reverse_storage, forward_storage, nd, adj, const_values)
 
         # collect directional derivatives
         for c in k:(k+N-1)
@@ -162,8 +164,38 @@ function hessmat_eval!{N,T}(R::Matrix{T},
         end
     end
 
-    # do one more evaluation with whatever's chunk-size is left over
-    # leftover = size(R, 2) - last_chunk
+    # do one more evaluation with whatever chunk remains, if one remains at all
+    remaining = ncols - last_chunk
+    if remaining > 0
+        # reinterpret storage to hold smaller GradientNumbers (the new size is
+        # equal to the size of the final chunk)
+        G2 = GradNumTup{remaining, T}
+        last_input_vector = sub(reinterpret(G2, forward_input_vector), 1:length(forward_input_vector))
+        last_output_vector = sub(reinterpret(G2, reverse_output_vector), 1:length(reverse_output_vector))
+        last_reverse_storage = sub(reinterpret(G2, reverse_storage), 1:length(reverse_storage))
+        last_forward_storage = sub(reinterpret(G2, forward_storage), 1:length(forward_storage))
+
+        # set up directional derivatives
+        for r in 1:length(local_to_global_idx)
+            idx = local_to_global_idx[r]
+            last_input_vector[idx] = G2(x_values[idx], extract_partials(G2, R, r, last_chunk))
+            last_output_vector[idx] = zero(G2)
+        end
+
+        # do a forward pass
+        forward_eval(forward_storage, nd, adj, const_values, forward_input_vector)
+
+        # do a reverse pass
+        reverse_eval(reverse_output_vector, reverse_storage, forward_storage, nd, adj, const_values)
+
+        # collect directional derivatives
+        for c in last_chunk:ncols
+            for r in 1:length(local_to_global_idx)
+                idx = local_to_global_idx[r]
+                R[r,c] = grad(reverse_output_vector[idx], c)
+            end
+        end
+    end
 end
 
 # returns (R[r, k], R[r, k+1], ... R[r, k+N-1])

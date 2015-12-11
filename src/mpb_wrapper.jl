@@ -31,6 +31,8 @@ type FunctionStorage
     seed_matrix::Matrix{Float64}
 end
 
+const TUPLEN = 10
+
 type RDSNLPEvaluator <: MathProgBase.AbstractNLPEvaluator
     numVar::Int
     numConstr::Int
@@ -39,10 +41,10 @@ type RDSNLPEvaluator <: MathProgBase.AbstractNLPEvaluator
     last_x::Vector{Float64}
     jac_storage::Vector{Float64} # temporary storage for computing jacobians
     # storage for computing hessians
-    forward_storage_hess::Vector{Dual{Float64}} # length is of the longest expression
-    reverse_storage_hess::Vector{Dual{Float64}} # length is of the longest expression
-    forward_input_vector::Vector{Dual{Float64}} # length is number of variables
-    reverse_output_vector::Vector{Dual{Float64}}# length is number of variables
+    forward_storage_hess::Vector{GradNumTup{TUPLEN,Float64}} # length is of the longest expression
+    reverse_storage_hess::Vector{GradNumTup{TUPLEN,Float64}} # length is of the longest expression
+    forward_input_vector::Vector{GradNumTup{TUPLEN,Float64}} # length is number of variables
+    reverse_output_vector::Vector{GradNumTup{TUPLEN,Float64}}# length is number of variables
 end
 
 function MathProgBase.loadproblem!(m::RDSModel, numVar, numConstr, l, u, lb, ub, sense, d::MathProgBase.AbstractNLPEvaluator)
@@ -50,8 +52,8 @@ function MathProgBase.loadproblem!(m::RDSModel, numVar, numConstr, l, u, lb, ub,
     m.numVar = numVar
     m.numConstr = numConstr
 
-    nlp = RDSNLPEvaluator(numVar, numConstr, d, FunctionStorage[], Array(Float64,numVar), Array(Float64, numVar),Vector{Dual{Float64}}(0),Vector{Dual{Float64}}(0),
-    Array(Dual{Float64},numVar),Array(Dual{Float64},numVar))
+    nlp = RDSNLPEvaluator(numVar, numConstr, d, FunctionStorage[], Array(Float64,numVar), Array(Float64, numVar),Vector{GradNumTup{TUPLEN,Float64}}(0),Vector{GradNumTup{TUPLEN,Float64}}(0),
+    Array(GradNumTup{TUPLEN,Float64},numVar),Array(GradNumTup{TUPLEN,Float64},numVar))
 
     MathProgBase.loadproblem!(m.realmodel, numVar, numConstr, l, u, lb, ub, sense, nlp)
 end
@@ -108,8 +110,8 @@ function MathProgBase.initialize(d::RDSNLPEvaluator, requested_features)
     end
 
     if want_hess # allocate extra storage
-        d.forward_storage_hess = Array(Dual{Float64},max_expr_length)
-        d.reverse_storage_hess = Array(Dual{Float64},max_expr_length)
+        d.forward_storage_hess = Array(GradNumTup{TUPLEN,Float64},max_expr_length)
+        d.reverse_storage_hess = Array(GradNumTup{TUPLEN,Float64},max_expr_length)
     end
 end
 
@@ -216,9 +218,9 @@ function MathProgBase.eval_hesslag(d::RDSNLPEvaluator, H, x, σ, μ)
 
     nzcount = 0
 
-    for i in 1:d.numVar
-        d.forward_input_vector[i] = Dual(x[i],0.0)
-    end
+#    for i in 1:d.numVar
+#        d.forward_input_vector[i] = GradNumTup{TUPLEN,Float64}(x[i])
+#    end
 
     for i in 1:length(d.expressions)
         ex = d.expressions[i]

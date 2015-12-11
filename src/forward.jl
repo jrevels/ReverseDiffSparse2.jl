@@ -3,7 +3,7 @@
 # forward-mode evaluation of an expression tree
 # tree is represented as Vector{NodeData} and adjacency matrix from adjmat()
 
-function forward_eval{T}(storage::Vector{T},nd::Vector{NodeData},adj,const_values,x_values::Vector{T})
+function forward_eval{T}(storage::Vector{T},nd::Vector{NodeData},adj,const_values,x_values)
 
     @assert length(storage) >= length(nd)
 

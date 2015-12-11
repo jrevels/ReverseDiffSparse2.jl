@@ -140,6 +140,10 @@ function hessmat_eval!{N,T}(R::Matrix{T},
     last_chunk = N*nevals
     G = GradNumTup{N,T}
 
+    for i in 1:length(x_values)
+        forward_input_vector[i] = G(x_values[i])
+    end
+
     # perform all evaluations requiring the full chunk-size
     for k in 1:N:last_chunk
         # set up directional derivatives
@@ -159,7 +163,7 @@ function hessmat_eval!{N,T}(R::Matrix{T},
         for c in k:(k+N-1)
             for r in 1:length(local_to_global_idx)
                 idx = local_to_global_idx[r]
-                R[r,c] = grad(reverse_output_vector[idx], c)
+                R[r,c] = grad(reverse_output_vector[idx], c-k+1)
             end
         end
     end
@@ -171,28 +175,31 @@ function hessmat_eval!{N,T}(R::Matrix{T},
         # equal to the size of the final chunk)
         G2 = GradNumTup{remaining, T}
         last_input_vector = sub(reinterpret(G2, forward_input_vector), 1:length(forward_input_vector))
-        last_output_vector = sub(reinterpret(G2, reverse_output_vector), 1:length(reverse_output_vector))
-        last_reverse_storage = sub(reinterpret(G2, reverse_storage), 1:length(reverse_storage))
-        last_forward_storage = sub(reinterpret(G2, forward_storage), 1:length(forward_storage))
+        last_output_vector = reinterpret(G2, reverse_output_vector)
+        last_reverse_storage = reinterpret(G2, reverse_storage)
+        last_forward_storage = reinterpret(G2, forward_storage)
+        for i in 1:length(x_values)
+            last_input_vector[i] = G2(x_values[i])
+        end
 
         # set up directional derivatives
         for r in 1:length(local_to_global_idx)
             idx = local_to_global_idx[r]
-            last_input_vector[idx] = G2(x_values[idx], extract_partials(G2, R, r, last_chunk))
+            last_input_vector[idx] = G2(x_values[idx], extract_partials(G2, R, r, last_chunk+1))
             last_output_vector[idx] = zero(G2)
         end
 
         # do a forward pass
-        forward_eval(forward_storage, nd, adj, const_values, forward_input_vector)
+        forward_eval(last_forward_storage, nd, adj, const_values, last_input_vector)
 
         # do a reverse pass
-        reverse_eval(reverse_output_vector, reverse_storage, forward_storage, nd, adj, const_values)
+        reverse_eval(last_output_vector, last_reverse_storage, last_forward_storage, nd, adj, const_values)
 
         # collect directional derivatives
-        for c in last_chunk:ncols
+        for c in last_chunk+1:ncols
             for r in 1:length(local_to_global_idx)
                 idx = local_to_global_idx[r]
-                R[r,c] = grad(reverse_output_vector[idx], c)
+                R[r,c] = grad(reverse_output_vector[idx], c-last_chunk)
             end
         end
     end

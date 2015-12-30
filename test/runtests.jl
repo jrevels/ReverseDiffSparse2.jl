@@ -82,7 +82,7 @@ test_linearity(:(x[1]/3+x[2]), LINEAR)
 test_linearity(:(3/(x[1]*x[2])), NONLINEAR, Set([(2,2),(1,1),(2,1)]))
 test_linearity(:(1/(x[1]+3)), NONLINEAR)
 
-ex = :(x[1]^2/2 + 2x[1]*x[2])
+ex = :(x[1]^2/2 + 2x[1]*x[2]*x[3])
 nd,const_values = expr_to_nodedata(ex)
 adj = adjmat(nd)
 
@@ -90,19 +90,20 @@ G = ForwardDiff.GradNumTup{2,Float64}
 
 forward_storage = Array(G,length(nd))
 reverse_storage = Array(G,length(nd))
-reverse_output_vector = Array(G,2)
-forward_input_vector = Array(G,2)
-x_values = [10.0,2.0]
+reverse_output_vector = Array(G,3)
+forward_input_vector = Array(G,3)
+x_values = [10.0,2.0,3.0]
 
-local_to_global_idx = [1,2]
-R = [1.0 0.0; 0.0 1.0]
+local_to_global_idx = [1,2,3]
+R = [2.0 0.0 2.0; 0.0 1.0 1.0; 2.0 1.0 0.0]
 hessmat_eval!(R, reverse_storage, forward_storage, nd, adj, const_values, x_values, reverse_output_vector, forward_input_vector, local_to_global_idx)
-@test R == [1.0 2.0; 2.0 0.0]
+@test_approx_eq R [10.0 10.0 8.0; 52.0 20.0 12.0; 8.0 20.0 28.0]
+
 # now with a permutation
-local_to_global_idx = [2,1]
-R = [0.0 1.0; 1.0 0.0]
+local_to_global_idx = [2,3,1]
+R = [1.0 2.0 1.0; 2.0 0.0 0.0; 1.0 0.0 2.0]
 hessmat_eval!(R, reverse_storage, forward_storage, nd, adj, const_values, x_values, reverse_output_vector, forward_input_vector, local_to_global_idx)
-@test R == [2.0 0.0; 1.0 2.0]
+@test_approx_eq R [46.0 0.0 12.0; 24.0 40.0 28.0; 15.0 12.0 8.0]
 
 include("test_coloring.jl")
 include("test_jump.jl")

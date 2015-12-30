@@ -171,29 +171,22 @@ function hessmat_eval!{N,T}(R::Matrix{T},
     # do one more evaluation with whatever chunk remains, if one remains at all
     remaining = ncols - last_chunk
     if remaining > 0
-        # reinterpret storage to hold smaller GradientNumbers (the new size is
-        # equal to the size of the final chunk)
-        G2 = GradNumTup{remaining, T}
-        last_input_vector = sub(reinterpret(G2, forward_input_vector), 1:length(forward_input_vector))
-        last_output_vector = reinterpret(G2, reverse_output_vector)
-        last_reverse_storage = reinterpret(G2, reverse_storage)
-        last_forward_storage = reinterpret(G2, forward_storage)
-        for i in 1:length(x_values)
-            last_input_vector[i] = G2(x_values[i])
-        end
+
+        Z = Val{N-remaining} # number of extra zeros
+        k = last_chunk+1
 
         # set up directional derivatives
         for r in 1:length(local_to_global_idx)
             idx = local_to_global_idx[r]
-            last_input_vector[idx] = G2(x_values[idx], extract_partials(G2, R, r, last_chunk+1))
-            last_output_vector[idx] = zero(G2)
+            forward_input_vector[idx] = G(x_values[idx], extract_partials(G, R, r, k, Z))
+            reverse_output_vector[idx] = zero(G)
         end
 
         # do a forward pass
-        forward_eval(last_forward_storage, nd, adj, const_values, last_input_vector)
+        forward_eval(forward_storage, nd, adj, const_values, forward_input_vector)
 
         # do a reverse pass
-        reverse_eval(last_output_vector, last_reverse_storage, last_forward_storage, nd, adj, const_values)
+        reverse_eval(reverse_output_vector, reverse_storage, forward_storage, nd, adj, const_values)
 
         # collect directional derivatives
         for c in last_chunk+1:ncols
@@ -209,5 +202,11 @@ end
 @generated function extract_partials{N,T}(::Type{GradNumTup{N,T}}, R, r, k)
     return Expr(:tuple, [:(R[r, k+$i]) for i in 0:(N-1)]...)
 end
+
+# returns (R[r, k], R[r, k+1], ... R[r, k+N-1-z], 0...)
+@generated function extract_partials{N,T,z}(::Type{GradNumTup{N,T}}, R, r, k, ::Type{Val{z}})
+    return Expr(:tuple, [:(R[r, k+$i]) for i in 0:(N-1-z)]..., [zero(T) for i in 1:z]...)
+end
+
 
 export hessmat_eval!
